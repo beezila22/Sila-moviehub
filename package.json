@@ -2,10 +2,10 @@
   "name": "moviehub",
   "version": "1.0.0",
   "scripts": {
-    "start": "node server/server.js",
-    "build": "cd client && npm install && npm run build"
+    "build": "cd client && npm install && npm run build",
+    "start": "cd server && npm install && node server.js",
+    "heroku-postbuild": "cd client && npm install && npm run build"
   },
-  "dependencies": {},
   "engines": {
     "node": ">=18"
   }
