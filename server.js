@@ -1,26 +1,43 @@
+// server/server.js
 const express = require('express')
 const path = require('path')
+const fs = require('fs').promises
 const bodyParser = require('body-parser')
 const cors = require('cors')
-const { Low } = require('lowdb')
-const { JSONFile } = require('lowdb/node')
 const { nanoid } = require('nanoid')
 
 const app = express()
 app.use(cors())
 app.use(bodyParser.json())
 
-// lowdb file
-const file = path.join(__dirname, 'db.json')
-const adapter = new JSONFile(file)
-const db = new Low(adapter)
+const DB_PATH = path.join(__dirname, 'db.json')
 
-async function initDB() {
-  await db.read()
-  db.data ||= { movies: [] }
-  await db.write()
+// Helper: read/write DB (simple)
+async function readDB() {
+  try {
+    const raw = await fs.readFile(DB_PATH, 'utf8')
+    return JSON.parse(raw)
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      // file not found -> init
+      return { movies: [] }
+    }
+    throw err
+  }
 }
-initDB()
+
+async function writeDB(data) {
+  await fs.writeFile(DB_PATH, JSON.stringify(data, null, 2), 'utf8')
+}
+
+// ensure db exists
+(async () => {
+  try {
+    await fs.access(DB_PATH)
+  } catch {
+    await writeDB({ movies: [] })
+  }
+})()
 
 const ADMIN_KEY = process.env.ADMIN_KEY || 'change_me'
 function requireAdmin(req, res, next) {
@@ -31,42 +48,42 @@ function requireAdmin(req, res, next) {
 
 // Public routes
 app.get('/api/movies', async (req, res) => {
-  await db.read()
+  const db = await readDB()
   const q = (req.query.q || '').toLowerCase()
-  const filtered = db.data.movies.filter(m => (!q || m.title.toLowerCase().includes(q)))
+  const filtered = db.movies.filter(m => (!q || m.title.toLowerCase().includes(q)))
   res.json(filtered)
 })
 
 app.get('/api/movies/:id', async (req, res) => {
-  await db.read()
-  const m = db.data.movies.find(x => x.id === req.params.id)
+  const db = await readDB()
+  const m = db.movies.find(x => x.id === req.params.id)
   if (!m) return res.status(404).json({ error: 'not found' })
   res.json(m)
 })
 
 // Admin routes
 app.post('/api/admin/movies', requireAdmin, async (req, res) => {
-  await db.read()
   const payload = req.body
+  const db = await readDB()
   const movie = { id: nanoid(8), ...payload, createdAt: new Date().toISOString() }
-  db.data.movies.unshift(movie)
-  await db.write()
+  db.movies.unshift(movie)
+  await writeDB(db)
   res.json(movie)
 })
 
 app.put('/api/admin/movies/:id', requireAdmin, async (req, res) => {
-  await db.read()
-  const idx = db.data.movies.findIndex(m => m.id === req.params.id)
+  const db = await readDB()
+  const idx = db.movies.findIndex(m => m.id === req.params.id)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
-  db.data.movies[idx] = { ...db.data.movies[idx], ...req.body }
-  await db.write()
-  res.json(db.data.movies[idx])
+  db.movies[idx] = { ...db.movies[idx], ...req.body }
+  await writeDB(db)
+  res.json(db.movies[idx])
 })
 
 app.delete('/api/admin/movies/:id', requireAdmin, async (req, res) => {
-  await db.read()
-  db.data.movies = db.data.movies.filter(m => m.id !== req.params.id)
-  await db.write()
+  const db = await readDB()
+  db.movies = db.movies.filter(m => m.id !== req.params.id)
+  await writeDB(db)
   res.json({ ok: true })
 })
 
